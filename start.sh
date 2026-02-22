@@ -1,15 +1,21 @@
 #!/bin/sh
-echo "=== OPENCLAW GATEWAY TOKEN ==="
-python3 -c "
-import json, os
-config_path = os.path.expanduser('~/.openclaw/openclaw.json')
-try:
-    with open(config_path) as f:
-        d = json.load(f)
-    token = d.get('gateway', {}).get('auth', {}).get('token', 'NOT FOUND')
-    print('TOKEN:', token)
-except Exception as e:
-    print('Config not found:', e)
-" 2>&1 || echo "python3 not available"
-echo "=============================="
-exec node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789
+echo "=== Starting OpenClaw Gateway ==="
+
+# Start gateway in background (no exec, so we can run other commands)
+node openclaw.mjs gateway --allow-unconfigured --bind lan --port 18789 &
+GATEWAY_PID=$!
+echo "Gateway PID: $GATEWAY_PID"
+
+# Auto-approve device pairing requests loop
+# Runs every 15s so any browser connecting gets approved quickly
+(
+    sleep 12
+    echo "=== Auto-approve loop started ==="
+    while kill -0 $GATEWAY_PID 2>/dev/null; do
+        node openclaw.mjs devices approve --latest 2>/dev/null && echo "[auto-approve] Device approved!" || true
+        sleep 15
+    done
+) &
+
+# Wait for gateway to exit (keeps container alive)
+wait $GATEWAY_PID
